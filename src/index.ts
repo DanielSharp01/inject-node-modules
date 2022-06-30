@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 import fs from 'fs-extra';
+import klawSync from 'klaw-sync';
 import path from 'path';
-import globCallback from 'glob';
-import { promisify } from 'util';
+import glob from 'glob';
+import minimatch from 'minimatch';
 import yargs from 'yargs';
 import chalk from 'chalk';
 
@@ -17,8 +18,6 @@ if (!fs.existsSync(injectFile)) {
   process.exit(1);
 }
 
-const glob = promisify(globCallback);
-
 interface ServiceDefinition {
   path: string;
   has?: string;
@@ -29,7 +28,7 @@ interface Service {
   name: string;
 }
 
-type InjectDefinition = Record<string, string>;
+type InjectDefinition = Record<string, { path: string, exclude?: string }>;
 
 interface NodeInjectDefinition {
   services: Record<string, ServiceDefinition>;
@@ -45,11 +44,11 @@ const definition = loadDefinition();
 const serviceGroupMap = new Map(Object.entries(definition.services));
 let serviceMap: Map<string, Service[]>;
 
-async function getServices() {
-  const newEntries = [...serviceGroupMap.entries()].map(async ([key, value]) => {
+function getServices() {
+  const newEntries = [...serviceGroupMap.entries()].map(([key, value]) => {
     const groupPath = value.path;
     const groupPathWithoutGlob = groupPath.replace('*', '');
-    const services = (await glob(groupPath)).filter(service => 
+    const services = (glob.sync(groupPath)).filter(service => 
       !value.has || fs.existsSync(path.join(service, value.has))).map(servicePath => ({
         name: servicePath.replace(groupPathWithoutGlob, ''),
         path: servicePath
@@ -57,17 +56,17 @@ async function getServices() {
     
     return [key, services] as [string, Service[]];
   });
-  return new Map(await Promise.all(newEntries));
+  return new Map(newEntries);
 }
 
-function* getInjectablePaths(injectDestination: string, injectSource: string): Generator<[string, string], any, undefined> {
-  const matches = injectSource.matchAll(/{([^}]+)}/g);
+function* getInjectablePaths(injectDestination: string, injectSource: { path: string, exclude?: string }): Generator<[string, { path: string, exclude?: string}], any, undefined> {
+  const matches = injectSource.path.matchAll(/{([^}]+)}/g);
   const match = matches.next().value;
   if (match) {
     const key = match[1];
     const paths = [];
     for (const services of serviceMap.get(key)) {
-      paths.push(...getInjectablePaths(injectDestination.replace(match[0], services.name), injectSource.replace(match[0], services.path)));
+      paths.push(...getInjectablePaths(injectDestination.replace(match[0], services.name), { path: injectSource.path.replace(match[0], services.path), exclude: injectSource.exclude }));
     }
     yield* paths;
   } else {
@@ -79,16 +78,20 @@ function* getInjectablePaths(injectDestination: string, injectSource: string): G
 function injectService(service: Service, definition: InjectDefinition) {
   for (const injectPath in definition) {
     const serviceInjectPath = path.join(service.path, injectPath);
-    const injectDest = definition[injectPath];
-    for (const [injectDestination, injectSource] of getInjectablePaths(serviceInjectPath, injectDest)) {
+    const injectSrc = definition[injectPath];
+    for (const [injectDestination, injectSource] of getInjectablePaths(serviceInjectPath, injectSrc)) {
       injectServiceFromPath(injectDestination, injectSource);
-      console.log(chalk.greenBright(`${chalk.cyanBright(service.name)} successfully injected 💉 with ${chalk.whiteBright(injectSource)}`));
+      console.log(chalk.greenBright(`${chalk.cyanBright(service.name)} successfully injected 💉 with ${chalk.whiteBright(injectSource.path)}`));
     }
   }
 }
 
-function injectServiceFromPath(injectDestination: string, injectSource: string) {
-  fs.copySync(injectSource, injectDestination, { overwrite: true, recursive: true });
+function injectServiceFromPath(injectDestination: string, injectSource: { path: string, exclude?: string }) {
+  
+  for (const file of klawSync(injectSource.path, { filter: (f) => !minimatch(f.path, injectSource.exclude) })) {
+    const relPath = file.path.replace(injectSource.path, '');
+    fs.copySync(file.path, path.join(injectDestination, relPath), { overwrite: true });
+  }
 }
 
 async function main() {

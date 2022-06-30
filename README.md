@@ -29,7 +29,10 @@ inject-node-modules --inject "./inject.json"
   },
   "inject": {
     "injectableService": {
-      "node_modules/your-module/injectable-folder/{injectedService}": "{injectedService}/injectable-folder"
+      "node_modules/your-module/injectable-folder/{injectedService}": {
+        "path": "{injectedService}/injectable-folder",
+        "exclude": "optionalExclude/**/glob"
+      }
     }
   }
 }
