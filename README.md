@@ -25,6 +25,11 @@ inject-node-modules --inject "./inject.json"
     "injectedService": {
       "path": "./services/*",
       "has": "injectable-folder"
+    },
+    "namedService": {
+      "name": "name",
+      "path": "./services/name",
+      "has": "injectable-folder"
     }
   },
   "inject": {

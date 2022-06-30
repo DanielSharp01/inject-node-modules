@@ -19,6 +19,7 @@ if (!fs.existsSync(injectFile)) {
 }
 
 interface ServiceDefinition {
+  name?: string;
   path: string;
   has?: string;
 }
@@ -50,7 +51,7 @@ function getServices() {
     const groupPathWithoutGlob = groupPath.replace('*', '');
     const services = (glob.sync(groupPath)).filter(service => 
       !value.has || fs.existsSync(path.join(service, value.has))).map(servicePath => ({
-        name: servicePath.replace(groupPathWithoutGlob, ''),
+        name: value.name ?? servicePath.replace(groupPathWithoutGlob, ''),
         path: servicePath
       }));
     
